@@ -1,59 +1,38 @@
-// src/index.ts
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Importar rutas
-import healthRoutes from './routes/health.routes';
 import authRoutes from './routes/auth.routes';
-import productsRoutes from './routes/products.routes';
-import servicesRoutes from './routes/services.routes';
-import usersRoutes from './routes/users.routes';
-import backupsRoutes from './routes/backups.routes';
-import appointmentsRoutes from './routes/appointments.routes';
+// ... (tus otros imports de rutas)
 
 dotenv.config();
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// 🌟 1. CONFIGURACIÓN DE CORS ACTUALIZADA
-// Cambiado a 'stetica.netlify.app' para que coincida con tu URL real
-app.use(cors({
-  origin: [
-    'http://localhost:5173', 
-    'https://stetica.netlify.app' 
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
-}));
+// 🚀 1. CORS MANUAL (ESTO DEBE IR PRIMERO QUE TODO)
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', 'https://stetica.netlify.app');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') return res.status(200).end();
+    next();
+});
 
 app.use(express.json());
 
-// 🌟 2. CARPETAS ESTÁTICAS
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-
-// 🌟 3. RUTA DE BIENVENIDA
-app.get('/', (req, res) => {
-    res.json({ message: "API de Estética corriendo con éxito en Vercel 🚀" });
+// 🚀 2. RUTA DE PRUEBA (Para ver si el backend responde)
+app.get('/api/test', (req, res) => {
+    res.json({ status: "Router funcionando", date: new Date() });
 });
 
-// 🌟 4. REGISTRAR RUTAS
-app.use('/api', healthRoutes); 
+// 🚀 3. REGISTRO DE RUTAS
 app.use('/api/auth', authRoutes);
-app.use('/api/products', productsRoutes);
-app.use('/api/services', servicesRoutes);
-app.use('/api/users', usersRoutes);
-app.use('/api/backups', backupsRoutes);
-app.use('/api/appointments', appointmentsRoutes);
+// ... (tus otras rutas)
 
-// 🌟 5. ENCENDER SERVIDOR (Local)
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, () => {
-        console.log(`🚀 Servidor local en puerto: ${PORT}`);
-    });
-}
+// Ruta raíz para Vercel
+app.get('/', (req, res) => {
+    res.json({ message: "Backend Estética Online 🚀" });
+});
 
-// 🌟 6. EXPORTAR APP
 export default app;
