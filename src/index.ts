@@ -17,10 +17,15 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 🌟 1. CONFIGURACIÓN DE CORS (Debe ir ANTES de las rutas)
+// 🌟 1. CONFIGURACIÓN DE CORS BLINDADA
+// Asegúrate de que la URL de Netlify sea EXACTAMENTE 'https://ssteticaa.netlify.app' sin / al final
 app.use(cors({
-  // Cuando tengas tu URL de Netlify, cambia 'https://tu-sitio.netlify.app' por la tuya
-  origin: ['http://localhost:5173', 'https://ssteticaa.netlify.app'], 
+  origin: [
+    'http://localhost:5173', 
+    'https://ssteticaa.netlify.app'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
 
@@ -29,7 +34,12 @@ app.use(express.json());
 // 🌟 2. CARPETAS ESTÁTICAS
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
-// 🌟 3. REGISTRAR RUTAS
+// 🌟 3. RUTA DE BIENVENIDA (Para que no salga el error "Cannot GET /")
+app.get('/', (req, res) => {
+    res.json({ message: "API de Estética corriendo con éxito en Vercel 🚀" });
+});
+
+// 🌟 4. REGISTRAR RUTAS
 app.use('/api', healthRoutes); 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
@@ -38,12 +48,12 @@ app.use('/api/users', usersRoutes);
 app.use('/api/backups', backupsRoutes);
 app.use('/api/appointments', appointmentsRoutes);
 
-// 🌟 4. ENCENDER SERVIDOR (Para cuando trabajas en local)
-app.listen(PORT, () => {
-    console.log(`-----------------------------------------`);
-    console.log(`🚀 Servidor corriendo en puerto: ${PORT}`);
-    console.log(`-----------------------------------------`);
-});
+// 🌟 5. ENCENDER SERVIDOR (Para desarrollo local)
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, () => {
+        console.log(`🚀 Servidor local en puerto: ${PORT}`);
+    });
+}
 
-// 🌟 5. EXPORTAR APP (Vital para que Vercel funcione)
+// 🌟 6. EXPORTAR APP (Vital para Vercel)
 export default app;
