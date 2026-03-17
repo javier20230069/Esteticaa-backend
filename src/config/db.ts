@@ -9,7 +9,10 @@ const pool = new Pool({
     host: process.env.DB_HOST,
     port: parseInt(process.env.DB_PORT || '5432'),
     database: process.env.DB_NAME,
-    ssl: false // <--- ¡Esta es la línea mágica que apaga el SSL!
+    // 🌟 CAMBIA EL 'false' POR ESTO:
+    ssl: {
+        rejectUnauthorized: false 
+    }
 });
 
 pool.on('connect', () => {
