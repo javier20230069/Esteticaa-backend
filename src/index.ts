@@ -20,7 +20,7 @@ const PORT = process.env.PORT || 3000;
 // 🌟 1. CONFIGURACIÓN DE CORS (Debe ir ANTES de las rutas)
 app.use(cors({
   // Cuando tengas tu URL de Netlify, cambia 'https://tu-sitio.netlify.app' por la tuya
-  origin: ['http://localhost:5173', 'https://tu-sitio.netlify.app'], 
+  origin: ['http://localhost:5173', 'https://ssteticaa.netlify.app'], 
   credentials: true
 }));
 
