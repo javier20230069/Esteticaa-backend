@@ -1,24 +1,34 @@
 // src/routes/backups.routes.ts
 import { Router } from 'express';
-import { createBackup, listBackups, downloadBackup, deleteBackup } from '../controllers/backups.controller';
-import { verifyToken, isAdmin } from '../middlewares/auth.middleware'; // Importamos la seguridad
+import { 
+    createBackup, 
+    createAutoBackup, 
+    listBackups, 
+    deleteBackup, 
+    autoCleanupBackups 
+} from '../controllers/backups.controller';
+import { verifyToken, isAdmin } from '../middlewares/auth.middleware';
 
 const router = Router();
 
-// 1. CREAR: Genera un nuevo archivo .sql en el servidor
-// Usamos POST porque estamos "creando" algo nuevo
-router.post('/', verifyToken, isAdmin, createBackup);
-
-// 2. LISTAR: Lee la carpeta y te devuelve la lista de archivos
-// Usamos GET porque solo queremos "leer" información
+// 1. LISTAR: Trae los respaldos (manuales y automáticos) desde Cloudinary
 router.get('/', verifyToken, isAdmin, listBackups);
 
-// 3. DESCARGAR: Descarga el archivo específico a tu computadora
-// Usamos GET y le pasamos el nombre del archivo en la URL (:fileName)
-router.get('/download/:fileName', verifyToken, isAdmin, downloadBackup);
+// 2. CREAR MANUAL: Se ejecuta cuando presionas el botón en tu página
+router.post('/', verifyToken, isAdmin, createBackup);
 
-// 4. ELIMINAR: Borra el archivo del disco duro del servidor
-// Usamos DELETE para la acción destructiva
-router.delete('/:fileName', verifyToken, isAdmin, deleteBackup);
+// 3. ELIMINAR: Borra un archivo específico (recibe ?public_id=...)
+router.delete('/', verifyToken, isAdmin, deleteBackup);
+
+// ==========================================
+// 🤖 RUTAS AUTOMÁTICAS (Para Vercel Cron Jobs)
+// No usan verifyToken porque Vercel las llamará de forma interna y segura
+// ==========================================
+
+// 4. CREAR AUTOMÁTICO: Sube el respaldo a la carpeta 'automaticos'
+router.post('/cron/create', createAutoBackup);
+
+// 5. AUTO-LIMPIEZA: Borra los respaldos con más de 7 días de antigüedad
+router.post('/cron/cleanup', autoCleanupBackups);
 
 export default router;
