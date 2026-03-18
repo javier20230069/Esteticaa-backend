@@ -16,66 +16,78 @@ cloudinary.config({
 
 // 🛠️ FUNCIÓN AUXILIAR: Extrae la BD, la comprime en .tar.gz y la sube
 const generateAndUploadBackup = async (folderName: string) => {
-    // 1. Extraer todas las tablas de la base de datos
-    const tablesRes = await pool.query("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public';");
+
+    // ✅ FIX: Ahora trae tablas de TODOS los schemas (auth, inventory, operations, public)
+    // Excluimos schemas internos de PostgreSQL que no son datos de la app
+    const tablesRes = await pool.query(`
+        SELECT schemaname, tablename 
+        FROM pg_catalog.pg_tables 
+        WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+        ORDER BY schemaname, tablename;
+    `);
+
     const backupData: Record<string, any[]> = {};
 
     for (const row of tablesRes.rows) {
-        const tableName = row.tablename;
-        const dataRes = await pool.query(`SELECT * FROM "${tableName}"`);
-        backupData[tableName] = dataRes.rows;
+        const { schemaname, tablename } = row;
+
+        const dataRes = await pool.query(`SELECT * FROM "${schemaname}"."${tablename}"`);
+
+        // La clave incluye el schema para evitar colisiones de nombres: "auth.users", "public.orders", etc.
+        const key = `${schemaname}.${tablename}`;
+        backupData[key] = dataRes.rows;
     }
 
     const dateStr = new Date().toISOString().replace(/T/, '_').replace(/[:.]/g, '-').slice(0, 19);
     const fileName = `backup_${dateStr}.tar.gz`;
 
-    // 2. Crear el archivo .tar.gz en memoria (sin escribir en disco)
+    // Crear el archivo .tar.gz en memoria agrupando por schema
     const pack = tarStream.pack();
     const gzip = zlib.createGzip();
 
-    // Cada tabla se guarda como un archivo .json independiente dentro del tar
-    for (const [tableName, rows] of Object.entries(backupData)) {
-        const content = Buffer.from(JSON.stringify(rows, null, 2));
-        pack.entry({ name: `${tableName}.json`, size: content.length }, content);
+    // Agrupar por schema para crear carpetas dentro del tar
+    // Resultado: auth/users.json, inventory/products.json, operations/appointments.json, etc.
+    const bySchema: Record<string, Record<string, any[]>> = {};
+    for (const [key, rows] of Object.entries(backupData)) {
+        const [schema, table] = key.split('.');
+        if (!bySchema[schema]) bySchema[schema] = {};
+        bySchema[schema][table] = rows;
     }
 
-    // Archivo resumen con TODAS las tablas juntas (útil para restaurar de un solo golpe)
+    for (const [schema, tables] of Object.entries(bySchema)) {
+        for (const [table, rows] of Object.entries(tables)) {
+            const content = Buffer.from(JSON.stringify(rows, null, 2));
+            // Cada tabla queda en su carpeta: auth/users.json, inventory/products.json, etc.
+            pack.entry({ name: `${schema}/${table}.json`, size: content.length }, content);
+        }
+    }
+
+    // Archivo resumen con TODO junto
     const fullDump = Buffer.from(JSON.stringify(backupData, null, 2));
     pack.entry({ name: 'full_backup.json', size: fullDump.length }, fullDump);
 
     pack.finalize();
 
-    // 3. Pipear pack → gzip → buffer → Cloudinary
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
-
         pack.pipe(gzip);
-
         gzip.on('data', (chunk: Buffer) => chunks.push(chunk));
         gzip.on('error', reject);
         gzip.on('end', () => {
             const buffer = Buffer.concat(chunks);
-
             const uploadStream = cloudinary.uploader.upload_stream(
-                {
-                    resource_type: 'raw',
-                    folder: folderName,
-                    public_id: fileName,
-                    format: '',
-                },
+                { resource_type: 'raw', folder: folderName, public_id: fileName, format: '' },
                 (error: any, result: any) => {
                     if (error) reject(error);
                     else resolve(result);
                 }
             );
-
             uploadStream.end(buffer);
         });
     });
 };
 
-// ✅ FIX: Agrega fl_attachment a la URL para forzar descarga en Cloudinary
-// Sin esto, Cloudinary muestra el archivo en el navegador en lugar de descargarlo
+// ✅ Helper: URL pública directa (ya habilitaste PDF/ZIP delivery en Cloudinary)
 const toDownloadUrl = (secureUrl: string): string => {
     return secureUrl.replace('/upload/', '/upload/fl_attachment/');
 };
@@ -120,11 +132,9 @@ export const listBackups = async (req: Request, res: Response): Promise<void> =>
 
         const backups = result.resources.map((file: any) => {
             const type = file.public_id.includes('manuales') ? 'Manual' : 'Automático';
-
             return {
                 fileName: file.public_id.split('/').pop(),
                 public_id: file.public_id,
-                // ✅ FIX: fl_attachment fuerza la descarga en lugar de abrir en el navegador
                 url: toDownloadUrl(file.secure_url),
                 size: (file.bytes / 1024 / 1024).toFixed(2) + ' MB',
                 createdAt: file.created_at,
@@ -132,9 +142,7 @@ export const listBackups = async (req: Request, res: Response): Promise<void> =>
             };
         });
 
-        // Más nuevo arriba
         backups.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
         res.json(backups);
     } catch (error) {
         console.error("Error al listar:", error);
@@ -150,7 +158,6 @@ export const deleteBackup = async (req: Request, res: Response): Promise<void> =
             res.status(400).json({ message: 'Se requiere el public_id del archivo.' });
             return;
         }
-
         await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
         res.json({ message: 'Respaldo eliminado.' });
     } catch (error) {
@@ -159,7 +166,30 @@ export const deleteBackup = async (req: Request, res: Response): Promise<void> =
     }
 };
 
-// 5. AUTO-LIMPIEZA (borra respaldos con más de 7 días)
+// 5. DESCARGAR — Genera URL firmada válida por 5 minutos
+export const downloadBackup = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const publicId = req.query.public_id as string;
+        if (!publicId) {
+            res.status(400).json({ message: 'Se requiere el public_id del archivo.' });
+            return;
+        }
+
+        const signedUrl = cloudinary.utils.private_download_url(publicId, '', {
+            resource_type: 'raw',
+            type: 'upload',
+            attachment: true,
+            expires_at: Math.floor(Date.now() / 1000) + 300
+        });
+
+        res.redirect(signedUrl);
+    } catch (error) {
+        console.error("Error generando URL de descarga:", error);
+        res.status(500).json({ message: 'Error al generar el enlace de descarga.' });
+    }
+};
+
+// 6. AUTO-LIMPIEZA (borra respaldos con más de 7 días)
 export const autoCleanupBackups = async (req: Request, res: Response): Promise<void> => {
     try {
         const result = await cloudinary.search
