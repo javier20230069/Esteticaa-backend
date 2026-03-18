@@ -11,6 +11,7 @@ import productsRoutes from './routes/products.routes';
 import servicesRoutes from './routes/services.routes';
 import usersRoutes from './routes/users.routes';
 import appointmentsRoutes from './routes/appointments.routes';
+import backupRoutes from './routes/backups.routes';
 
 dotenv.config();
 const app = express();
@@ -35,6 +36,7 @@ app.use('/api/products', productsRoutes);
 app.use('/api/services', servicesRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/appointments', appointmentsRoutes);
+app.use('/api/backups', backupRoutes);
 
 // Carpeta de archivos
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
