@@ -27,7 +27,7 @@ const generateAndUploadBackup = async (folderName: string) => {
     }
 
     const dateStr = new Date().toISOString().replace(/T/, '_').replace(/[:.]/g, '-').slice(0, 19);
-    const fileName = `backup_${dateStr}.tar.gz`; // 🆕 Formato .tar.gz
+    const fileName = `backup_${dateStr}.tar.gz`;
 
     // 2. Crear el archivo .tar.gz en memoria (sin escribir en disco)
     const pack = tarStream.pack();
@@ -43,7 +43,7 @@ const generateAndUploadBackup = async (folderName: string) => {
     const fullDump = Buffer.from(JSON.stringify(backupData, null, 2));
     pack.entry({ name: 'full_backup.json', size: fullDump.length }, fullDump);
 
-    pack.finalize(); // Indica que ya no hay más archivos en el tar
+    pack.finalize();
 
     // 3. Pipear pack → gzip → buffer → Cloudinary
     return new Promise((resolve, reject) => {
@@ -56,13 +56,12 @@ const generateAndUploadBackup = async (folderName: string) => {
         gzip.on('end', () => {
             const buffer = Buffer.concat(chunks);
 
-            // 4. Subir el buffer .tar.gz a Cloudinary
             const uploadStream = cloudinary.uploader.upload_stream(
                 {
                     resource_type: 'raw',
                     folder: folderName,
                     public_id: fileName,
-                    format: '', // Evita que Cloudinary modifique la extensión
+                    format: '',
                 },
                 (error: any, result: any) => {
                     if (error) reject(error);
@@ -75,13 +74,19 @@ const generateAndUploadBackup = async (folderName: string) => {
     });
 };
 
+// ✅ FIX: Agrega fl_attachment a la URL para forzar descarga en Cloudinary
+// Sin esto, Cloudinary muestra el archivo en el navegador en lugar de descargarlo
+const toDownloadUrl = (secureUrl: string): string => {
+    return secureUrl.replace('/upload/', '/upload/fl_attachment/');
+};
+
 // 1. CREAR MANUAL -> Carpeta: manuales
 export const createBackup = async (req: Request, res: Response): Promise<void> => {
     try {
         const uploadResult: any = await generateAndUploadBackup('estetica_backups/manuales');
         res.status(201).json({
             message: 'Respaldo manual creado con éxito ☁️',
-            url: uploadResult.secure_url
+            url: toDownloadUrl(uploadResult.secure_url)
         });
     } catch (error) {
         console.error("Error creando backup manual:", error);
@@ -95,7 +100,7 @@ export const createAutoBackup = async (req: Request, res: Response): Promise<voi
         const uploadResult: any = await generateAndUploadBackup('estetica_backups/automaticos');
         res.status(201).json({
             message: 'Respaldo automático creado en la nube 🤖',
-            url: uploadResult.secure_url
+            url: toDownloadUrl(uploadResult.secure_url)
         });
     } catch (error) {
         console.error("Error creando backup automático:", error);
@@ -119,7 +124,8 @@ export const listBackups = async (req: Request, res: Response): Promise<void> =>
             return {
                 fileName: file.public_id.split('/').pop(),
                 public_id: file.public_id,
-                url: file.secure_url,
+                // ✅ FIX: fl_attachment fuerza la descarga en lugar de abrir en el navegador
+                url: toDownloadUrl(file.secure_url),
                 size: (file.bytes / 1024 / 1024).toFixed(2) + ' MB',
                 createdAt: file.created_at,
                 type: type
