@@ -70,13 +70,18 @@ export const createAutoBackup = async (req: Request, res: Response): Promise<voi
 // 3. LISTAR AMBOS TIPOS
 export const listBackups = async (req: Request, res: Response): Promise<void> => {
     try {
-        const result = await cloudinary.search
-            .expression('folder:estetica_backups/*')
-            .sort_by('created_at', 'desc')
-            .execute();
+        // 🌟 Usamos la API de recursos y le decimos explícitamente que busque archivos 'raw' (documentos)
+        const result = await cloudinary.api.resources({
+            type: 'upload',
+            resource_type: 'raw', // <- ¡Esta es la clave para que no falle!
+            prefix: 'estetica_backups/', // Busca en esta carpeta y sus subcarpetas
+            max_results: 100
+        });
 
         const backups = result.resources.map((file: any) => {
-            const type = file.folder.includes('manuales') ? 'Manual' : 'Automático';
+            // Sabemos si es manual o automático revisando en qué subcarpeta está
+            const type = file.public_id.includes('manuales') ? 'Manual' : 'Automático';
+            
             return {
                 fileName: file.public_id.split('/').pop(),
                 public_id: file.public_id, 
@@ -86,6 +91,9 @@ export const listBackups = async (req: Request, res: Response): Promise<void> =>
                 type: type
             };
         });
+
+        // Ordenamos la lista para que el más nuevo salga hasta arriba
+        backups.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
         res.json(backups);
     } catch (error) {
